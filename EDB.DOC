@@ -1,0 +1,410 @@
+#if 0 /* ;) */
+ 
+  File name:  edb.doc, It can't be called the complete documentation,
+              but it is all I have...
+
+  x86 Emulating Debugger (EDB)
+
+  Copyright (C) 1991-1993 Serge Pachkovsky
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 1, or (at your option)
+  any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+  If you need to contact me, feel free to write to ps@oci.unizh.ch
+  or to Serge Pachkovsky, Erligatterweg 61, Zuerich CH 8038, Switzerland
+
+#endif
+
+		Emulating debugger (EDB)
+		------------------------
+
+    Emulating debugger (EDB) was designed to debug 'undebuggable' programs.
+EDB is able to browse thru programs what use trace and debug interrupts to
+decrypt own code, executes from video RAM, temporarily overwrite BIOS and DOS
+data areas, disables hardware interrupts, etc. All this with a small fraction
+of efforts used to develop protected program (often with no efforts at all)
+and without any hardware debugging capabilities necessary. EDB.COM supplied
+with C.U.T. was compiled for 80286/80386 instruction set. Version for
+8086/8088 is available on request.
+
+	* * * * * * * * * * * * NOTE * * * * * * * * * * * * * * * *
+
+	It is not recommended to compress EDB executable file image.
+	Although EDB will work correctly, it will be unable to
+	provide program being debugged with undocumented values in
+	CPU registers at start time. These values depend upon DOS
+	maker and version and are generally destroyed by
+	decompression stubs.
+
+	* * * * * * * * * * * END NOTE * * * * * * * * * * * * * * *
+
+    You can interrupt EDB by pressing Shift-Alt-Ctrl (all keys left)
+simultaneously. After a small delay (EDB checks for break request each 5000
+instructions) EDB prompt will appear.
+
+    EDB has only three command line switches:
+    /G	    - Grow EDB by one segment (see EXERECON.COM for explanation)
+    /I	    - Disable local IDT feature. EDB, when run on 80286 or later CPU,
+	makes undocumented use of protected mode LIDT instruction to provide
+	itself with local interrupt description table. When EDB detects
+	incompatible protected mode environment (QEMM/386, 386^MAX, Windows
+	3.0, etc.), it disables local IDT. Still, EDB can't detect programs,
+	which access extended memory via INT 15h/87h BIOS call, clearing IDT
+	register in CPU. /I permits to run EDB in such environment.
+	(Microsoft HIMEM.SYS and other software accessing extended memory
+	with LOADALL instruction (80286) or in huge real mode (80386) is
+	perfectly compatible with EDB's IDT moving). Another case then you
+	could be forced to use /I switch is running EDB under DesqView (or any
+	other multitasker on 286 machines), which can't keep track of IDT's in
+	user space.
+
+    /J:name - Start reading journal 'name.jou' (See 'JR' command).
+
+    All other options important for EDB operations are in file 'CONFIG.EDB',
+which should be in current directory when EDB is started. CONFIG.EDB is
+divided into sections, controlling different parts of EDB. At the very
+beginning of each section it's name is placed in square brackets (a-la
+Win.Ini). Then parameters of this section follow, specified in general
+format ParameterName = Value. Order in which sections appear in configuration
+file is perfectly indifferent to EDB, all sections with unknown tags are
+ignored (and so is all lines beginning with ';').Currently, the following
+sections should be present in CONFIG.EDB:
+
+    '[System bus]' section describes CPU's interactions with outside world.
+    It contains the following parameters:
+
+WrapA20  = {Off|On}
+    Specifies state of A20 processor gate. Some programs rely on A20 to
+    be permanently closed, which is not the case with HIMEM.SYS present.
+
+DisablePort = PortNumber
+    Obsolete. Ignore it.
+
+DataVector = Number
+DataVector = Begin-End
+    Vectors mentioned as data vectors will appear in program address space as
+    is, thus providing access to tables pointed by them. All other vectors
+    will appear as 0001:Vector_Number. Vectors not mentioned in DataVector
+    will potentially cause trouble with 'GF' command, while DataVector'ed
+    vectors will rely significantly on ProgramTop/ProgramBottom settings.
+    You should experiment to find settings which suit you best.
+
+MonitorVector = Number
+    EDB will route hardware interrupts occurring on vector 'number' to program
+    being debugged. Meaningful values are from the following list (although up
+    to any 5 values from 00 to FF will be accepted):
+	02 - NMI    -	Coprocessor, parity
+	08 - IRQ 0  -	System timer
+      [ 09 - IRQ 1  -	Keyboard ]
+	0A - IRQ 2  -	Cascade on AT, VGA, LPT3
+	0B - IRQ 3  -	COM2
+	0C - IRQ 4  -	COM1
+	0D - IRQ 5  -	LPT2
+	0E - IRQ 6  -	Floppy
+	0F - IRQ 7  -	LPT1
+    Although 09 (Keyboard) can be used, EDB will not be able to accept
+    keyboard commands and should be controlled entirely from journal file.
+
+InterruptDelay = Number
+    Instructs EDB to delay recognition of interrupt by Number instructions.
+    InterruptDelay should usually be set to zero, but some programs which
+    incorrectly rely upon instruction timing could require non-zero interrupt
+    delay. E.g., look at the following code:
+
+    interrupt:
+	mov	interrupt_flag, 1
+	iret
+
+    start:
+	sti
+	nop
+	mov	interrupt_flag, 0
+	...
+    wait_here:
+	cmp	interrupt_flag, 0
+	je	wait_here
+	...
+
+    On the extremly slow machines (and EDB IS extremly slow), interrupt can
+    occure before interrupt flag is cleared, and program will wait for flag
+    forever.
+
+VirtualRAM = Start-End
+    Route program's memory references in region specified by 21-bits addresses
+    to a separate memory area. Note what word memory accesses falling on
+    boundary of virtual segment will NOT be split between memory blocks. Up to
+    five areas can be declared. Note what EDB always use implicit
+    VirtualRAM=0-3FF statement to provide program with own IDT.
+	VirtualRAM could cause trouble with 'GF' command and implicit
+    full-speed execution, expecially when VirtualRAM area overwrites DOS
+    areas.
+
+MirrorPort = Port [Port ...]
+    Any value which was out'ed to port specified in this statement will be
+    later echoed back to the program with the execution of 'IN'. Hardware
+    ports with the same addresses with be unavailable to the program. It is
+    wise to insert 'MirrorPort=21 A1' statement in your config.edb, so that
+    program will not disable interrupts on entire machine...
+
+
+    '[DOS software]' sections have now three parameters:
+
+ProgramBottom = Segment
+    All code in segments strictly below specified Segment will be executed on
+    a real CPU, assuming that far return address is on top of stack. Segment
+    0 represents PSP.
+
+ProgramTop    = Segment
+    All code in segments strictly above specified Segment will be executed on
+    a real CPU.
+
+WatchExec     = {On|Off}
+    Setting WatchExec to On causes EDB to intercept DOS EXEC function thus
+leaving children processes inside virtual CPU. WatchExec is NOT able to track
+actions of programs directly calling internal addresses of DOS (COMMAND.COM is
+an example). Setting WatchExec to On with such program will cause system
+failure.
+    If you are desperate to debug such application with EDB, you could act as
+follows: 1. Boot with clean system (no XMS or EMS drivers, no 286/386-
+specific software, etc.) 2. Set ProgramBottom = 1 and ProgramTop to whichever
+you memory top is. 3. Be sure DOS vectors 20, 21, 22, 27 are not mentioned
+it DataVector statements. 4. Try to debug program again.
+
+    '[CPU options]' section defines detail of CPU emulation
+
+Processor     = CPU type.
+    Currently recognised CPU types are: 8086 (Synonim: 8088), 80186 (Synonims:
+80188, 186, 188), 80286 (Synonim: 286). 8086 and 80186 CPU's are emulated to
+the best extent of my knowledge (which the exceptions stated below), while
+80286 is crippled by lack of protected mode support (which requires a full AT
+emulator, not only CPU) and limited support of 286 extended exceptions (which
+requires a great deal of work on my part...). Loadall instruction is not
+supported, too.
+
+Prefetch      = size
+    Valid values for processor prefetch queue size are 0 and 4 to 20. Prefetch
+queue is used by most programs to determine CPU type (It is 4 bytes for 8088
+and 80188 CPUs, and 6 bytes for 8086 and 80186) and by some protected programs
+to prevent debugging. You should not set prefetch queue size to non-zero value
+if it is not absolutely nesessary, because it slows down EDB by approximately
+20 percent regardless of queue size.
+
+    '[Debug options]' section collect parameters which I failed to place
+somewhere else.
+
+TraceRecords  = number
+    Specifies number of last instructions addresses of which should be kept in
+trace buffer, so what execution history could be examined. Valid values are
+from 1 to 16000. Note what setting number of trace records to some low value
+will *decrease* performance.
+
+WarnSysTrace  = {On|Off}
+    If this option set to 'On', EDB will not permit implicit full-speed
+execution when emulated CPU is in single-step mode, as the program will be
+completely out of EDB's control while tracing.
+
+
+    EDB debugging session can be in two states: active and suspended. Active
+session is indicated by ']' prompt and it is permitted to use all commands
+except 'S'. Suspended session (which can be caused either by program
+termination or by suspended memory write) has '>' prompt and does not
+permit execution commands (T,P,G,X,GF). Suspended session causes by delayed
+memory write can be resumed to active state by 'S' or 'SC'.
+
+    Let me now tell a little about each EDB command.
+
+B	or
+BL
+    Lists all breakpoints
+
+BP [seg[-seg]:]off[-off] [action]
+    Sets breakpoint on code range, '*' can be used instead of 0-FFFF. Up to 5
+    code breakpoints can be specified. Setting code breakpoint will decrease
+    emulator performance.
+
+    Examples:
+    'bp *:1234' will set breakpoint on execution of instruction in ANY
+	segment at offset 1234 hex.
+    'bp 12-24:56-111 jr bp1' is a more complex example. it will cause EDB to
+	execute command 'JR BP1' (i.e., read journal file BP1.JOU) each time
+	then program attempts to execute instruction beginning at offsets 56
+	thru 111 hex in segments 12 thru 24 hex.
+
+BP -Number
+    Clear code breakpoint Number
+
+BM[R,W] XXXXX[-XXXXX] [action]
+    Sets breakpoint on memory access in specified range (inclusive). EDB
+    checks STARTING address of any memory access to fall in this region, so
+    word memory access at address 1 less then starting still could overwrite
+    data in region. 'BMR' sets break on memory read, 'BMW' on memory write,
+    'BM' on both. Up to 5 breakpoints could be set. If program makes more
+    then one memory access during single instruction (as in call far or int
+    commands), EDB will remember only last stored word. Setting memory
+    breakpoint will decrease performance.
+
+    Examples:
+    'bmw 12345' sets breakpoint on access to a single memory location 12345
+	(I.e., any of: 1234:5, 1230:45, etc.)
+    'bmw 400-4FF SC' will inform you each time then program attempts to write
+	into BIOS data area and automatically cancel that access.
+    'bmr F0000-FFFFF' will trigger each time then program fetches data from
+	ROM BIOS
+    'bm 100000-1FFFF' will inform about each access depending on state of A20
+	gate (Note: WrapA20 should be Off)
+
+BM[R,W] -Number
+    Clear memory breakpoint Number. Note that memory read and write
+    breakpoints are counted separately.
+
+BI[R,W] nnn[-nnn] [action]
+    Sets breakpoint on I/O read, I/O write or both. EDB wraps I/O address
+    around 400h. Although any number of I/O breakpoints could be set,
+    only five (or so) of them could have associated action. Note what both
+    read and write breakpoint on the same port should have the same (or no)
+    action associated with them. I/O breakpoints have no impact on emulator
+    performance.
+
+    Examples:
+    'biw 21 X'   Cancel any write access to port 21 (8259A IMR).
+    'bi 3F0-3F7' Trigger on any access to a FDC ports.
+
+BI[R,W] -nnn[-nnn]
+    Clear I/O breakpoint.
+
+BF {On|Off}
+    Set/clear breakpoin on implicit full-speed execution of program.
+
+BQ {On|Off}
+    Set/clear breakpoint on prefetch queue mismatch code segment data.
+    Enabling this breakpoint will severely (by a factor of 2) damage
+    preformance.
+
+D[B,W,D] [addr]
+    Dump memory as bytes, words, doublewords. Addr should be in ordinary
+    segment:offset form. (Names of segment registers are accepted).
+
+E[B,W,D] [addr]
+    Examine memory as bytes, words, doublewords.
+
+G [addr]
+    Go till addr is reached. All breakpoints are on.
+
+GF addr
+    Go full speed. Run program on a real CPU until it arrives to location
+    addr. EDB could not check for any breakpoints in this mode and have no
+    control over actions of program. EDB executes 'GF' internally each time
+    it arrives at entry of system ISR (which it identified by dummy selector
+    '0001' (I.e., int 21 has EDB's entry point 0001:0021), or CS: below
+    ProgramBottom or above ProgramTop. Then EDB executes 'GF' internally, it
+    assumes return address to be on top of stack. If your application is not
+    pleased with such arrangement, you could do it manually with action
+    associated with code breakpoint.
+	GF command could be valuable with applications which relies on
+    perfect instruction timing.
+
+I[B,W] port
+O[B,W] port
+    Read or write I/O port (byte or word). Mirrow'ed ports will return values
+    last send to them.
+
+J{S,C}
+J{R,W} name
+    EDB journal functions. 'JS' displays current status, 'JC' closes
+    currently active journal. 'JR myfile' takes EDB input from file
+    myfile.JOU. 'JW myfile' sends all you have typed on keyboard to
+    myfile.JOU. When in 'JW' mode, EDB flushes DOS file buffer after each
+    five typed commands, thus ensuring that nothing is lost in case of system
+    crush. EDB interrupt command (Ctrl-Alt-Shift) will close journal file
+    if it was opened for read.
+
+N  number	or
+NI number
+    Simulate arrival of hardware interrupt 'number'. (PUSHF, PUSH CS, PUSH
+    IP, JMP FAR to interrupt entry point).
+NT
+    Simulate IRET.
+NN [number]
+    Simulate RETN number.
+NF [number]
+    Simulate RETF number.
+
+P
+    Pass single instruction. Executes program until it arrives to the
+    instruction, following current in memory.
+
+Q
+    Quit EDB. 'Q' will work incorrectly if more then one process is currently
+    active (I.e., WatchExec is On, and current application spawned process,
+    which EDB is currently executing.)
+
+R [name] [value]
+    Display or modify CPU registers. (Note: CPU flags register called 'FLAGS'
+    in EDB)
+
+S[C]
+    Resume after memory write breakpoint. 'S' flushes delayed write buffer to
+    memory, 'SC' ignores it.
+
+T [count]
+    Trace 'count' (or 1 if none specified) instructions.
+
+U [addr]
+    Unassemble. Currently, only 8086/186/286 opcodes are supported depending
+    on current emulation mode.
+
+V [count]		  - View trace buffer
+    View CPU trace buffer, starting with command which was executed 'count'
+    before last. No more then screenful of data will be displayed. By default,
+    EDB stores addresses of 800 most recently executed commands and will
+    show them on 'V' command.
+
+W file [top]
+    Writes core image starting from PSP to 'top' (or to ProgramTop if none
+    specified) into 'file'. Used to create source images for EXERECON.COM.
+
+X
+    Skips the following CPU instruction. (Will work incorrectly when prefetch
+    queue don't match memory data).
+
+!
+    Clears screen.
+
+
+    EDB performs its functions by software emulating CPU instructions.
+Because it is not possible (or at least too costly) to emulate all peculiars
+of microprocessor, EDB will behave differently from 8088 in the following
+aspects:
+
+    1. EDB will not execute out-of-the-blue fragments of microcode for 
+       undefined instructions, as pre-286 CPU do (for example, try to
+       figure out the result of execution of 0feh,0e8h instruction on
+       8086 one day). It will generate 'invalid instruction' breakpoint
+       instead.
+    2. EDB will preserve all undefined flags during MUL and DIV instructions
+       (as NEC V20/V30 do, and will be therefore identified as V20/V30 by some
+       programs)
+    3. EDB will treat string instructions with multiply prefixes correctly
+       (again, as V20/V30 do).
+    4. EDB is a lot slower then 8086. Even on 33MHz 80486 it will perform as
+       about 30-40% of 8086
+
+
+	EXERECON.COM   - .EXE file reconstruction utility
+
+    EXERECON.COM (ExeReconstruct) is a small and straightforward program,
+analyzing two memory dumps in order to generate relocatable .EXE image of
+program loaded into memory. In order for ExeReconstruct to correctly identify
+relocatable references, memory dumps should be obtained for difference of 1
+paragraph in starting load address. This is done by '/G' switch of EDB.

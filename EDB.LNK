@@ -1,0 +1,6 @@
+/m /d /c								+
+c0 edb cpu8086 dssm8086 os sysbus accessory config fullspeed		+
+perversion checksize,							+
+edb,									+
+edb,									+
+cs

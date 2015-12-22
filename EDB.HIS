@@ -1,0 +1,38 @@
+This is the EDB revision history.
+
+v. 0.15
+      - Added EDB integrity check
+      - Fixed bug in I/O breakpoints with ins/outs instructions
+      - Fixed bug in 'bp' command with action expression incorrectly
+	recognised when offset range was used.
+      - Altered behaviour of 'bi' command with overlapping break points.
+	Bi will now preserve read breakpoint when write one is removed
+	and vv. Action expression will be preserved when no new action was
+	specified.
+      - Variable-size trace buffer introduced. V changed to show only
+	screenful of trace records
+      - Added breakpoint on prefetch queue different from memory (BQ)
+      - 80286 instructions added to disassembler
+      - Chaged disassemble logic, so that instructions unavailable
+	with current CPU type will be shown as 'invalid'
+      - GF will now refuse to proceed while single-stepping.
+      - G  will now accept stopping address as argument.
+      - EDB will now break out on attempt to implicitly run full speed
+	while single-stepping.
+      - Fixed bug in 'pop sp' (removed increment by 2)
+      - Added AAD/AAM support for bases other then 10
+      - Added cf2al (0xD6) instruction
+      - Added 80186 extended instruction set.
+      - Added new section 'CPU Options' to configuration file.
+	Possible values are: Processor and Prefetch.
+      - Fixed push sp for 286 mode
+      - Fixed bug in 8086 code for idiv instruction, so that quotient value
+	of 0x8000 now causes exception 0 while in 8086 mode.
+      - Fixed bug with return address of divide but zero exception in 286 mode.
+      - ESC/WAIT are now sensitive to msw bits while in 286 mode.
+      - call_interrupt now takes notice of idt.base in 286 mode.
+      - illegal instructions call exception 6 in 80286 mode
+      - Added prefetch queue support
+      - Added support for MirrorPort option
+
+v. 0.14 - First public release.
